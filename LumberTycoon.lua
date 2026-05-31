@@ -665,3 +665,34 @@ do
 	loadingFrame.Position = UDim2.new(0.5, 0, -0.5, 0)
 	loadFrame.Size = UDim2.new(0, 0, 0.5, 0)
 end
+
+-- WATER ICE =============================================================================================================================--
+
+do
+	local waterParts = {}
+
+	local waterModel = workspace:FindFirstChild("Water")
+
+	if waterModel then
+		for _, v in ipairs(waterModel:GetDescendants()) do
+			if v:IsA("BasePart") and v.Name == "Water" then
+				table.insert(waterParts, v)
+			end
+		end
+	end
+
+	_G.SetWaterIce = function(state)
+		_G.WaterIce = state
+
+		for _, part in ipairs(waterParts) do
+			if part and part.Parent then
+				part.CanCollide = state
+			end
+		end
+	end
+end
+--[[ API
+_G.SetWaterIce(true)
+
+_G.SetWaterIce(false)
+]]
