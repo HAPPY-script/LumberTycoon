@@ -362,7 +362,7 @@ do
 	local activeLift
 
 	local LIFT_TIME = 0.35
-	local LIFT_MULT = 2
+	local LIFT_MULT = 1
 
 	local function bindCharacter(char)
 		character = char
