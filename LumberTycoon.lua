@@ -349,6 +349,7 @@ end
 do
 	local Players = game:GetService("Players")
 	local UIS = game:GetService("UserInputService")
+	local RunService = game:GetService("RunService")
 
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
@@ -357,23 +358,57 @@ do
 	local flipButton = flipCarFrame:WaitForChild("TextButton")
 
 	local humanoid
-	local seatConn
+	local character
+	local activeLift
 
-	local LIFT_EXTRA = 10       -- lực cộng thêm
-	local LIFT_TIME = 0.2       -- thời gian đẩy
+	local LIFT_TIME = 0.35
+	local LIFT_MULT = 2
 
-	local function getChar()
-		local char = player.Character or player.CharacterAdded:Wait()
+	local function bindCharacter(char)
+		character = char
 		humanoid = char:WaitForChild("Humanoid")
-		return char
+	end
+
+	local function getVehicleSeat()
+		if humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat") then
+			return humanoid.SeatPart
+		end
+		return nil
 	end
 
 	local function inVehicleSeat()
-		return humanoid and humanoid.SeatPart and humanoid.SeatPart:IsA("VehicleSeat")
+		return getVehicleSeat() ~= nil
 	end
 
 	local function setVisible()
 		flipCarFrame.Visible = inVehicleSeat()
+	end
+
+	local function getFlatLookDirection(rootPart)
+		local cam = workspace.CurrentCamera
+		local dir = cam and cam.CFrame.LookVector or rootPart.CFrame.LookVector
+		dir = Vector3.new(dir.X, 0, dir.Z)
+
+		if dir.Magnitude < 0.05 then
+			dir = Vector3.new(rootPart.CFrame.LookVector.X, 0, rootPart.CFrame.LookVector.Z)
+		end
+
+		if dir.Magnitude < 0.05 then
+			return Vector3.new(0, 0, -1)
+		end
+
+		return dir.Unit
+	end
+
+	local function cleanupLift()
+		if activeLift then
+			for _, obj in ipairs(activeLift) do
+				if obj and obj.Parent then
+					obj:Destroy()
+				end
+			end
+			activeLift = nil
+		end
 	end
 
 	local function flipAction()
@@ -381,47 +416,73 @@ do
 			return
 		end
 
-		local seatPart = humanoid.SeatPart
-		local root = seatPart.AssemblyRootPart or seatPart
-		if not root or not root.Parent then
+		local seat = getVehicleSeat()
+		if not seat then
 			return
 		end
 
+		local rootPart = seat.AssemblyRootPart or seat
+		if not rootPart or not rootPart:IsA("BasePart") then
+			return
+		end
+
+		cleanupLift()
+
 		local att = Instance.new("Attachment")
-		att.Name = "FlipLiftAttachment"
-		att.Parent = root
+		att.Name = "__FlipLiftAttachment"
+		att.Parent = rootPart
 
 		local vf = Instance.new("VectorForce")
-		vf.Name = "FlipLiftForce"
+		vf.Name = "__FlipLiftForce"
 		vf.Attachment0 = att
 		vf.RelativeTo = Enum.ActuatorRelativeTo.World
 		vf.ApplyAtCenterOfMass = true
-		vf.Force = Vector3.new(0, root.AssemblyMass * (workspace.Gravity + LIFT_EXTRA), 0)
-		vf.Parent = root
+		vf.Force = Vector3.new(0, rootPart.AssemblyMass * workspace.Gravity * LIFT_MULT, 0)
+		vf.Parent = rootPart
+
+		local ao = Instance.new("AlignOrientation")
+		ao.Name = "__FlipLiftOrientation"
+		ao.Attachment0 = att
+		ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		ao.RigidityEnabled = true
+		ao.ReactionTorqueEnabled = true
+		ao.Responsiveness = 200
+		ao.MaxTorque = math.huge
+		ao.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + getFlatLookDirection(rootPart))
+		ao.Parent = rootPart
+
+		activeLift = { att, vf, ao }
 
 		task.delay(LIFT_TIME, function()
-			if vf then vf:Destroy() end
-			if att then att:Destroy() end
+			cleanupLift()
+			if rootPart and rootPart.Parent then
+				local dir = getFlatLookDirection(rootPart)
+				local pos = rootPart.Position
+				rootPart.AssemblyLinearVelocity = Vector3.zero
+				rootPart.AssemblyAngularVelocity = Vector3.zero
+				rootPart.CFrame = CFrame.lookAt(pos, pos + dir)
+			end
 		end)
 	end
 
-	local function bindCharacter(char)
-		humanoid = char:WaitForChild("Humanoid")
-
-		if seatConn then
-			seatConn:Disconnect()
-			seatConn = nil
+	local function bindSeatWatch()
+		if not humanoid then
+			return
 		end
 
-		seatConn = humanoid:GetPropertyChangedSignal("SeatPart"):Connect(setVisible)
-		setVisible()
+		humanoid:GetPropertyChangedSignal("SeatPart"):Connect(setVisible)
 	end
 
 	if player.Character then
 		bindCharacter(player.Character)
+		bindSeatWatch()
 	end
 
-	player.CharacterAdded:Connect(bindCharacter)
+	player.CharacterAdded:Connect(function(char)
+		bindCharacter(char)
+		setVisible()
+		bindSeatWatch()
+	end)
 
 	UIS.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
