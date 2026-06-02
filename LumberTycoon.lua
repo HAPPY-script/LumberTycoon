@@ -348,7 +348,6 @@ end
 
 do
 	local Players = game:GetService("Players")
-	local TweenService = game:GetService("TweenService")
 	local UIS = game:GetService("UserInputService")
 
 	local player = Players.LocalPlayer
@@ -357,8 +356,11 @@ do
 	local flipCarFrame = gui:WaitForChild("FlipCarFrame")
 	local flipButton = flipCarFrame:WaitForChild("TextButton")
 
-	local seatPart
 	local humanoid
+	local seatConn
+
+	local LIFT_EXTRA = 10       -- lực cộng thêm
+	local LIFT_TIME = 0.2       -- thời gian đẩy
 
 	local function getChar()
 		local char = player.Character or player.CharacterAdded:Wait()
@@ -371,7 +373,7 @@ do
 	end
 
 	local function setVisible()
-		flipCarFrame.Visible = inVehicleSeat() and true or false
+		flipCarFrame.Visible = inVehicleSeat()
 	end
 
 	local function flipAction()
@@ -379,35 +381,40 @@ do
 			return
 		end
 
-		local char = player.Character or player.CharacterAdded:Wait()
-		local hrp = char:WaitForChild("HumanoidRootPart")
+		local seatPart = humanoid.SeatPart
+		local root = seatPart.AssemblyRootPart or seatPart
+		if not root or not root.Parent then
+			return
+		end
 
-		local upPos = hrp.Position + Vector3.new(0, 50, 0)
+		local att = Instance.new("Attachment")
+		att.Name = "FlipLiftAttachment"
+		att.Parent = root
 
-		local tween = TweenService:Create(
-			hrp,
-			TweenInfo.new(0.4, Enum.EasingStyle.Quad),
-			{
-				CFrame = CFrame.new(upPos)
-			}
-		)
+		local vf = Instance.new("VectorForce")
+		vf.Name = "FlipLiftForce"
+		vf.Attachment0 = att
+		vf.RelativeTo = Enum.ActuatorRelativeTo.World
+		vf.ApplyAtCenterOfMass = true
+		vf.Force = Vector3.new(0, root.AssemblyMass * (workspace.Gravity + LIFT_EXTRA), 0)
+		vf.Parent = root
 
-		tween:Play()
-		tween.Completed:Wait()
-
-		local look = hrp.CFrame.LookVector
-
-		hrp.CFrame = CFrame.lookAt(
-			hrp.Position,
-			hrp.Position + Vector3.new(look.X, 0, look.Z)
-		)
+		task.delay(LIFT_TIME, function()
+			if vf then vf:Destroy() end
+			if att then att:Destroy() end
+		end)
 	end
 
 	local function bindCharacter(char)
 		humanoid = char:WaitForChild("Humanoid")
-		setVisible()
 
-		humanoid:GetPropertyChangedSignal("SeatPart"):Connect(setVisible)
+		if seatConn then
+			seatConn:Disconnect()
+			seatConn = nil
+		end
+
+		seatConn = humanoid:GetPropertyChangedSignal("SeatPart"):Connect(setVisible)
+		setVisible()
 	end
 
 	if player.Character then
